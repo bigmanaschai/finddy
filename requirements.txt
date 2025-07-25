@@ -1,7 +1,7 @@
 streamlit==1.31.0
-pandas==2.2.0
-numpy==1.26.3
-torch==2.1.2
+pandas==2.2.3
+numpy==1.26.4
+torch>=2.0.0
 sentence-transformers==2.3.1
 scikit-learn==1.4.0
 PyPDF2==3.0.1

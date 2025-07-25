@@ -2,8 +2,6 @@ import os
 import json
 import numpy as np
 from typing import List, Dict, Tuple, Optional, Set
-import torch
-from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from tqdm import tqdm
 from pythainlp.tokenize import word_tokenize, sent_tokenize
@@ -11,6 +9,7 @@ from pythainlp.util import normalize
 import re
 from collections import defaultdict
 import streamlit as st
+import hashlib
 
 
 class ExperimentalThaiTextProcessor:
@@ -122,6 +121,50 @@ class ExperimentalThaiTextProcessor:
         return chunks
 
 
+class SimpleEmbedder:
+    """Simple embedder using TF-IDF or hash-based embeddings as fallback"""
+
+    def __init__(self, embedding_dim=384):
+        self.embedding_dim = embedding_dim
+        self.vocab = {}
+        self.idf = {}
+
+    def _hash_text_to_vector(self, text: str) -> np.ndarray:
+        """Create a deterministic vector from text using hashing"""
+        # Create multiple hash values to fill the embedding dimension
+        vector = np.zeros(self.embedding_dim)
+
+        # Use different hash functions/seeds
+        for i in range(self.embedding_dim):
+            # Create a unique hash for each dimension
+            hash_input = f"{i}:{text}"
+            hash_value = int(hashlib.md5(hash_input.encode()).hexdigest(), 16)
+            # Convert to float between -1 and 1
+            vector[i] = (hash_value % 10000) / 10000.0 * 2 - 1
+
+        # Normalize
+        norm = np.linalg.norm(vector)
+        if norm > 0:
+            vector = vector / norm
+
+        return vector
+
+    def encode(self, text: str, normalize_embeddings: bool = True, show_progress_bar: bool = False) -> np.ndarray:
+        """Encode text to vector"""
+        if isinstance(text, list):
+            return np.array([self.encode(t, normalize_embeddings, show_progress_bar) for t in text])
+
+        # Simple approach: use hash-based embeddings
+        vector = self._hash_text_to_vector(text)
+
+        if normalize_embeddings:
+            norm = np.linalg.norm(vector)
+            if norm > 0:
+                vector = vector / norm
+
+        return vector
+
+
 class ExperimentalVectorDatabase:
     """Vector database for experimental evaluation with metadata support"""
 
@@ -136,10 +179,16 @@ class ExperimentalVectorDatabase:
         self.department_index = defaultdict(list)
         self.type_index = defaultdict(list)
 
-    @st.cache_resource
-    def _load_model():
-        """Load the sentence transformer model"""
-        return SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
+    def _load_model(self):
+        """Load the embedding model"""
+        try:
+            # Try to load sentence transformers
+            from sentence_transformers import SentenceTransformer
+            return SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
+        except:
+            # Fallback to simple embedder
+            st.warning("Using simple embedder as sentence-transformers failed to load")
+            return SimpleEmbedder()
 
     def clear_database(self):
         """Clear existing database"""
@@ -186,11 +235,15 @@ class ExperimentalVectorDatabase:
             doc_entry = {
                 'id': doc['id'],
                 'text_value': doc['text'],
-                'text_embedding': text_embedding.tolist(),
+                'text_embedding': text_embedding.tolist() if hasattr(text_embedding,
+                                                                     'tolist') else text_embedding.tolist(),
                 'title': doc['title'],
-                'title_embedding': title_embedding.tolist(),
-                'keyword_embedding': keyword_embedding.tolist() if keyword_embedding is not None else None,
-                'combined_embedding': combined_embedding.tolist(),
+                'title_embedding': title_embedding.tolist() if hasattr(title_embedding,
+                                                                       'tolist') else title_embedding.tolist(),
+                'keyword_embedding': keyword_embedding.tolist() if keyword_embedding is not None and hasattr(
+                    keyword_embedding, 'tolist') else None,
+                'combined_embedding': combined_embedding.tolist() if hasattr(combined_embedding,
+                                                                             'tolist') else combined_embedding.tolist(),
                 'source': doc['source'],
                 'department': doc['department'],
                 'type': doc['type'],
@@ -366,6 +419,7 @@ class ExperimentalVectorDatabase:
         return results[:k]
 
 
+# Keep the rest of the ExperimentalCAMTLlamaRAG class as is...
 class ExperimentalCAMTLlamaRAG:
     """RAG system for experiments with metadata awareness"""
 
